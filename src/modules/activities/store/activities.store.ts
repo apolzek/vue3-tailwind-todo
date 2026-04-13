@@ -1,68 +1,12 @@
 import { defineStore } from 'pinia'
 import type { Activity, NewActivityForm } from '../types/activity.types'
-
-const mockActivities: Activity[] = [
-  {
-    id: '1',
-    title: 'Morning Standup',
-    description: 'Daily team sync meeting',
-    category: 'Work',
-    date: '2024-03-20',
-    time: '09:00',
-    location: 'Zoom',
-    status: 'completed',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    title: 'Gym Session',
-    description: 'Upper body workout',
-    category: 'Health',
-    date: '2024-03-20',
-    time: '18:00',
-    location: 'Fitness Center',
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: '3',
-    title: 'Project Planning',
-    description: 'Plan next sprint tasks',
-    category: 'Work',
-    date: '2024-03-21',
-    time: '14:00',
-    location: 'Office',
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: '4',
-    title: 'Read Book',
-    description: 'Read Clean Code chapter 3',
-    category: 'Learning',
-    date: '2024-03-21',
-    time: '20:00',
-    location: 'Home',
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: '5',
-    title: 'Team Lunch',
-    description: 'Team building lunch',
-    category: 'Work',
-    date: '2024-03-22',
-    time: '12:30',
-    location: 'Restaurant',
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  },
-]
+import { activitiesApi } from '../api/activities.api'
 
 export const useActivityStore = defineStore('activities', {
   state: () => ({
-    activities: mockActivities,
+    activities: [] as Activity[],
     loading: false,
+    loaded: false,
     error: null as string | null,
   }),
 
@@ -72,6 +16,9 @@ export const useActivityStore = defineStore('activities', {
     },
     getActivitiesByCategory: state => (category: string) => {
       return state.activities.filter(activity => activity.category === category)
+    },
+    getActivitiesByTag: state => (tag: string) => {
+      return state.activities.filter(activity => activity.tags?.includes(tag as never))
     },
     getActivityStats: state => {
       const stats = {
@@ -90,25 +37,50 @@ export const useActivityStore = defineStore('activities', {
   },
 
   actions: {
-    addActivity(activity: NewActivityForm) {
-      const newActivity: Activity = {
-        id: Date.now().toString(),
-        ...activity,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-      }
-      this.activities.push(newActivity)
-    },
-
-    updateActivityStatus(id: string, status: 'completed' | 'pending') {
-      const activity = this.activities.find(a => a.id === id)
-      if (activity) {
-        activity.status = status
+    async fetchActivities(force = false) {
+      if (this.loaded && !force) return
+      this.loading = true
+      this.error = null
+      try {
+        const rows = await activitiesApi.list()
+        this.activities = rows.map(r => ({ ...r, tags: r.tags ?? [] }))
+        this.loaded = true
+      } catch (e) {
+        this.error = (e as Error).message
+      } finally {
+        this.loading = false
       }
     },
 
-    deleteActivity(id: string) {
-      this.activities = this.activities.filter(a => a.id !== id)
+    async addActivity(activity: NewActivityForm) {
+      try {
+        const created = await activitiesApi.create({ ...activity, tags: activity.tags ?? [] })
+        this.activities.push({ ...created, tags: created.tags ?? [] })
+      } catch (e) {
+        this.error = (e as Error).message
+        throw e
+      }
+    },
+
+    async updateActivityStatus(id: string, status: 'completed' | 'pending') {
+      try {
+        const updated = await activitiesApi.updateStatus(id, status)
+        const i = this.activities.findIndex(a => a.id === id)
+        if (i >= 0) this.activities[i] = { ...updated, tags: updated.tags ?? [] }
+      } catch (e) {
+        this.error = (e as Error).message
+        throw e
+      }
+    },
+
+    async deleteActivity(id: string) {
+      try {
+        await activitiesApi.remove(id)
+        this.activities = this.activities.filter(a => a.id !== id)
+      } catch (e) {
+        this.error = (e as Error).message
+        throw e
+      }
     },
   },
 })

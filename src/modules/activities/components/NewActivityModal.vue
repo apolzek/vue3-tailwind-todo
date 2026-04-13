@@ -59,6 +59,26 @@
                   required
                 />
 
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">Tags</label>
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      v-for="t in ALL_TAGS"
+                      :key="t.value"
+                      type="button"
+                      @click="toggleTag(t.value)"
+                      class="px-3 py-1 rounded-full text-xs font-medium border transition"
+                      :class="
+                        form.tags.includes(t.value)
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      "
+                    >
+                      #{{ t.label }}
+                    </button>
+                  </div>
+                </div>
+
                 <div class="grid grid-cols-2 gap-4">
                   <BaseInput v-model="form.date" type="date" label="Date" required />
                   <BaseInput v-model="form.time" type="time" label="Time" required />
@@ -70,6 +90,8 @@
                   placeholder="Enter location"
                 />
 
+                <div v-if="error" class="text-sm text-red-600">{{ error }}</div>
+
                 <div class="mt-6 flex justify-end space-x-3">
                   <button
                     type="button"
@@ -80,9 +102,10 @@
                   </button>
                   <button
                     type="submit"
-                    class="rounded-lg bg-[#2564CF] px-4 py-2 text-sm font-medium text-white hover:bg-[#215ABB] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2564CF]"
+                    :disabled="saving"
+                    class="rounded-lg bg-[#2564CF] px-4 py-2 text-sm font-medium text-white hover:bg-[#215ABB] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2564CF] disabled:opacity-60"
                   >
-                    Add Activity
+                    {{ saving ? 'Saving…' : 'Add Activity' }}
                   </button>
                 </div>
               </form>
@@ -95,16 +118,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
 import { useActivityStore } from '../store/activities.store'
-import type { NewActivityForm } from '../types/activity.types'
+import type { ActivityCategory, ActivityTag, NewActivityForm } from '../types/activity.types'
 import BaseInput from '@/core/components/BaseInput.vue'
 import BaseTextarea from '@/core/components/BaseTextarea.vue'
 import BaseSelect from '@/core/components/BaseSelect.vue'
 
 const props = defineProps<{
   isOpen: boolean
+  defaultCategory?: ActivityCategory
+  defaultTag?: ActivityTag
 }>()
 
 const emit = defineEmits<{
@@ -113,30 +138,57 @@ const emit = defineEmits<{
 
 const activityStore = useActivityStore()
 
-const form = ref<NewActivityForm>({
+const ALL_TAGS: { value: ActivityTag; label: string }[] = [
+  { value: 'priority', label: 'priority' },
+  { value: 'meeting', label: 'meeting' },
+  { value: 'deadline', label: 'deadline' },
+  { value: 'errand', label: 'errand' },
+]
+
+const makeInitial = (): NewActivityForm => ({
   title: '',
   description: '',
-  category: 'Work',
+  category: props.defaultCategory ?? 'Work',
   date: new Date().toISOString().split('T')[0],
   time: '12:00',
   location: '',
+  tags: props.defaultTag ? [props.defaultTag] : [],
 })
+
+const form = ref<NewActivityForm>(makeInitial())
+const saving = ref(false)
+const error = ref<string | null>(null)
+
+watch(
+  () => props.isOpen,
+  isOpen => {
+    if (isOpen) {
+      form.value = makeInitial()
+      error.value = null
+    }
+  }
+)
+
+const toggleTag = (tag: ActivityTag) => {
+  const idx = form.value.tags.indexOf(tag)
+  if (idx >= 0) form.value.tags.splice(idx, 1)
+  else form.value.tags.push(tag)
+}
 
 const closeModal = () => {
   emit('close')
 }
 
-const handleSubmit = () => {
-  activityStore.addActivity(form.value)
-  closeModal()
-  // Reset form
-  form.value = {
-    title: '',
-    description: '',
-    category: 'Work',
-    date: new Date().toISOString().split('T')[0],
-    time: '12:00',
-    location: '',
+const handleSubmit = async () => {
+  saving.value = true
+  error.value = null
+  try {
+    await activityStore.addActivity(form.value)
+    closeModal()
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    saving.value = false
   }
 }
 </script>

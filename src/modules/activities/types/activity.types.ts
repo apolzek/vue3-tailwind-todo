@@ -1,5 +1,7 @@
 export type ActivityCategory = 'Work' | 'Personal' | 'Learning' | 'Health' | 'Other'
 
+export type ActivityTag = 'priority' | 'meeting' | 'deadline' | 'errand'
+
 export interface Activity {
   id: string
   title: string
@@ -9,6 +11,7 @@ export interface Activity {
   time: string
   location?: string
   status: 'completed' | 'pending'
+  tags: ActivityTag[]
   createdAt: string
 }
 
@@ -19,4 +22,5 @@ export interface NewActivityForm {
   date: string
   time: string
   location?: string
+  tags: ActivityTag[]
 }

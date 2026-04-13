@@ -6,6 +6,15 @@ import path from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
+  server: {
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_TARGET || 'http://api:3000',
+        changeOrigin: true,
+        rewrite: path => path.replace(/^\/api/, ''),
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -24,7 +33,7 @@ export default defineConfig({
           labels: [
             './src/modules/labels/components/LabelManagement.vue',
             './src/modules/labels/components/LabelFilter.vue',
-            './src/modules/labels/store/labels.store.ts',
+            './src/stores/labels.store.ts',
           ],
           'label-components': [
             './src/core/components/BaseLabelChip.vue',

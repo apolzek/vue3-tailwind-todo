@@ -2,8 +2,8 @@
   <div class="max-w-6xl mx-auto px-6 lg:px-8 py-8 lg:py-8">
     <div class="flex items-center justify-between mb-8">
       <div>
-        <h1 class="text-2xl font-semibold text-gray-900">All Activities</h1>
-        <p class="mt-1 text-sm text-gray-500">View and manage all your activities</p>
+        <h1 class="text-2xl font-semibold text-gray-900">{{ pageTitle }}</h1>
+        <p class="mt-1 text-sm text-gray-500">{{ pageSubtitle }}</p>
       </div>
       <button
         @click="isNewActivityModalOpen = true"
@@ -18,6 +18,7 @@
     <div class="bg-white rounded-lg border border-gray-200 p-4 mb-6">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <BaseSelect
+          v-if="!routeCategory"
           v-model="filters.category"
           label="Category"
           :options="[
@@ -47,12 +48,19 @@
       </div>
     </div>
 
+    <div v-if="activityStore.loading && !activityStore.loaded" class="text-center py-12 text-gray-500">
+      Loading activities…
+    </div>
+    <div v-else-if="activityStore.error" class="text-center py-12 text-red-500">
+      {{ activityStore.error }}
+    </div>
+
     <!-- Activities List -->
     <div class="space-y-4">
-      <div v-if="filteredActivities.length === 0" class="text-center py-12">
+      <div v-if="!activityStore.loading && sortedActivities.length === 0" class="text-center py-12">
         <DocumentIcon class="mx-auto h-12 w-12 text-gray-400" />
         <h3 class="mt-2 text-sm font-medium text-gray-900">No activities</h3>
-        <p class="mt-1 text-sm text-gray-500">Get started by creating a new activity.</p>
+        <p class="mt-1 text-sm text-gray-500">{{ emptyHint }}</p>
         <div class="mt-6">
           <button
             @click="isNewActivityModalOpen = true"
@@ -64,18 +72,11 @@
         </div>
       </div>
 
-      <TransitionGroup
-        enter-active-class="transition-all duration-300 ease-out"
-        enter-from-class="opacity-0 -translate-y-2"
-        enter-to-class="opacity-100 translate-y-0"
-        leave-active-class="transition-all duration-200 ease-in"
-        leave-from-class="opacity-100 translate-y-0"
-        leave-to-class="opacity-0 -translate-y-2"
-      >
+      <div :key="route.fullPath">
         <BaseListItem
           v-for="activity in sortedActivities"
           :key="activity.id"
-          customClass="bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
+          customClass="bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow mb-4"
         >
           <template #leading>
             <div
@@ -96,7 +97,7 @@
 
           <template #description>
             <p class="mt-1 text-sm text-gray-500">{{ activity.description }}</p>
-            <div class="mt-2 flex items-center space-x-4 text-sm text-gray-500">
+            <div class="mt-2 flex items-center flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
               <div class="flex items-center">
                 <CalendarIcon class="w-4 h-4 mr-1" />
                 {{ formatDate(activity.date) }}
@@ -108,6 +109,16 @@
               <div v-if="activity.location" class="flex items-center">
                 <MapPinIcon class="w-4 h-4 mr-1" />
                 {{ activity.location }}
+              </div>
+              <div v-if="activity.tags && activity.tags.length" class="flex items-center gap-1">
+                <span
+                  v-for="t in activity.tags"
+                  :key="t"
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                  :class="tagBadgeClass(t)"
+                >
+                  #{{ t }}
+                </span>
               </div>
             </div>
           </template>
@@ -132,16 +143,22 @@
             </div>
           </template>
         </BaseListItem>
-      </TransitionGroup>
+      </div>
     </div>
 
     <!-- New Activity Modal -->
-    <NewActivityModal :is-open="isNewActivityModalOpen" @close="isNewActivityModalOpen = false" />
+    <NewActivityModal
+      :is-open="isNewActivityModalOpen"
+      :default-category="routeCategory || undefined"
+      :default-tag="routeTag || undefined"
+      @close="isNewActivityModalOpen = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   PlusIcon,
   CalendarIcon,
@@ -154,12 +171,71 @@ import {
 import { useActivityStore } from '@/modules/activities/store/activities.store'
 import NewActivityModal from '@/modules/activities/components/NewActivityModal.vue'
 import BaseListItem from '@/core/components/BaseListItem.vue'
-import type { Activity } from '@/modules/activities/types/activity.types'
+import type { ActivityCategory, ActivityTag } from '@/modules/activities/types/activity.types'
 import BaseSelect from '@/core/components/BaseSelect.vue'
 import BaseInput from '@/core/components/BaseInput.vue'
 
 const activityStore = useActivityStore()
+const route = useRoute()
 const isNewActivityModalOpen = ref(false)
+
+onMounted(() => activityStore.fetchActivities())
+
+const CATEGORY_MAP: Record<string, { category: ActivityCategory; label: string }> = {
+  work:     { category: 'Work',     label: 'Work' },
+  personal: { category: 'Personal', label: 'Personal' },
+  health:   { category: 'Health',   label: 'Health & Fitness' },
+  learning: { category: 'Learning', label: 'Learning' },
+}
+
+const TAG_MAP: Record<string, { tag: ActivityTag; label: string }> = {
+  priority: { tag: 'priority', label: 'Priority' },
+  meeting:  { tag: 'meeting',  label: 'Meetings' },
+  deadline: { tag: 'deadline', label: 'Deadlines' },
+  errand:   { tag: 'errand',   label: 'Errands' },
+}
+
+const routeCategory = computed<ActivityCategory | null>(() => {
+  if (route.name !== 'category') return null
+  const key = String(route.params.category || '').toLowerCase()
+  return CATEGORY_MAP[key]?.category ?? null
+})
+
+const routeTag = computed<ActivityTag | null>(() => {
+  if (route.name !== 'tag') return null
+  const key = String(route.params.tag || '').toLowerCase()
+  return TAG_MAP[key]?.tag ?? null
+})
+
+const isCompletedView = computed(() => route.name === 'completed')
+
+const pageTitle = computed(() => {
+  if (routeCategory.value) {
+    const key = String(route.params.category || '').toLowerCase()
+    return CATEGORY_MAP[key]?.label ?? 'Activities'
+  }
+  if (routeTag.value) {
+    const key = String(route.params.tag || '').toLowerCase()
+    return TAG_MAP[key]?.label ?? 'Activities'
+  }
+  if (isCompletedView.value) return 'Completed'
+  if (route.name === 'upcoming') return 'Upcoming'
+  return 'All Activities'
+})
+
+const pageSubtitle = computed(() => {
+  if (routeCategory.value) return `Activities in ${pageTitle.value}`
+  if (routeTag.value) return `Activities tagged as ${pageTitle.value.toLowerCase()}`
+  if (isCompletedView.value) return 'Everything you have finished'
+  if (route.name === 'upcoming') return 'What is coming next'
+  return 'View and manage all your activities'
+})
+
+const emptyHint = computed(() => {
+  if (routeCategory.value) return `No activities in ${pageTitle.value} yet.`
+  if (routeTag.value) return `No activities tagged #${routeTag.value} yet.`
+  return 'Get started by creating a new activity.'
+})
 
 const filters = ref({
   category: '',
@@ -170,13 +246,20 @@ const filters = ref({
 const sortBy = ref<'date' | 'category' | 'status'>('date')
 
 const filteredActivities = computed(() => {
+  const today = new Date().toISOString().slice(0, 10)
   return activityStore.activities.filter(activity => {
+    if (routeCategory.value && activity.category !== routeCategory.value) return false
+    if (routeTag.value && !(activity.tags || []).includes(routeTag.value)) return false
+    if (isCompletedView.value && activity.status !== 'completed') return false
+    if (route.name === 'upcoming' && activity.date < today) return false
+
     const matchesCategory = !filters.value.category || activity.category === filters.value.category
     const matchesStatus = !filters.value.status || activity.status === filters.value.status
+    const q = filters.value.search.toLowerCase()
     const matchesSearch =
-      !filters.value.search ||
-      activity.title.toLowerCase().includes(filters.value.search.toLowerCase()) ||
-      activity.description.toLowerCase().includes(filters.value.search.toLowerCase())
+      !q ||
+      activity.title.toLowerCase().includes(q) ||
+      activity.description.toLowerCase().includes(q)
     return matchesCategory && matchesStatus && matchesSearch
   })
 })
@@ -202,6 +285,16 @@ const formatDate = (date: string) => {
     month: 'short',
     day: 'numeric',
   })
+}
+
+const tagBadgeClass = (tag: string) => {
+  switch (tag) {
+    case 'priority': return 'bg-red-50 text-red-700'
+    case 'meeting':  return 'bg-blue-50 text-blue-700'
+    case 'deadline': return 'bg-purple-50 text-purple-700'
+    case 'errand':   return 'bg-green-50 text-green-700'
+    default:         return 'bg-gray-50 text-gray-700'
+  }
 }
 
 const toggleActivityStatus = (id: string) => {
